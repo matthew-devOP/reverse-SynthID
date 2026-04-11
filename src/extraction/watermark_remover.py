@@ -318,7 +318,7 @@ class WatermarkRemover:
         categories (spatial, quality, noise, color, overlay) to exploit
         SynthID's weakness against combined transforms.
         """
-        from synthid_bypass import SynthIDBypass
+        from src.extraction.synthid_bypass import SynthIDBypass
         
         bypass = SynthIDBypass(extractor=self.extractor)
         result = bypass.bypass_v2(image, strength=strength, verify=verify)
@@ -551,7 +551,7 @@ Examples:
         
         if codebook and not no_verify:
             try:
-                from robust_extractor import RobustSynthIDExtractor
+                from src.extraction.robust_extractor import RobustSynthIDExtractor
                 extractor = RobustSynthIDExtractor()
                 extractor.load_codebook(codebook)
             except Exception as e:

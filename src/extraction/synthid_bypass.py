@@ -2143,7 +2143,7 @@ if __name__ == '__main__':
         det_path = getattr(args, 'detector', None) or getattr(args, 'codebook', None)
         if det_path and not args.no_verify:
             try:
-                from robust_extractor import RobustSynthIDExtractor
+                from src.extraction.robust_extractor import RobustSynthIDExtractor
                 extractor = RobustSynthIDExtractor()
                 extractor.load_codebook(det_path)
             except Exception as e:

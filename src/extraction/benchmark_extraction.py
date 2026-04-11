@@ -23,11 +23,8 @@ import numpy as np
 import cv2
 from collections import defaultdict
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from robust_extractor import RobustSynthIDExtractor, DetectionResult
-from watermark_remover import WatermarkRemover, RemovalResult
+from src.extraction.robust_extractor import RobustSynthIDExtractor, DetectionResult
+from src.extraction.watermark_remover import WatermarkRemover, RemovalResult
 
 
 @dataclass
@@ -390,7 +387,7 @@ def compare_with_original(
     print("=" * 60)
     
     # Original extractor (using same interface)
-    from synthid_codebook_extractor import detect_synthid
+    from src.extraction.synthid_codebook_extractor import detect_synthid
     
     # Robust extractor
     robust = RobustSynthIDExtractor()

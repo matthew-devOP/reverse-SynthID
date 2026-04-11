@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reverse-synthid"
+version = "0.3.0"
+description = "Reverse-engineer, detect, and remove Google SynthID watermarks via spectral analysis"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Alosh Denny", email = "aloshdenny@gmail.com"},
+]
+keywords = ["synthid", "watermark", "spectral-analysis", "image-processing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy>=1.21.0",
+    "scipy>=1.7.0",
+    "opencv-python>=4.5.0",
+    "PyWavelets>=1.1.1",
+    "scikit-learn>=0.24.0",
+    "Pillow>=8.0.0",
+    "matplotlib>=3.4.0",
+    "tqdm>=4.60.0",
+]
+
+[project.optional-dependencies]
+web = ["gradio>=4.0.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0",
+]
+all = ["reverse-synthid[web,dev]"]
+
+[project.scripts]
+synthid-bypass = "src.extraction.synthid_bypass:main"
+synthid-detect = "src.extraction.robust_extractor:main"
+
+[project.urls]
+Homepage = "https://github.com/aloshdenny/reverse-SynthID"
+Repository = "https://github.com/aloshdenny/reverse-SynthID"
+Issues = "https://github.com/aloshdenny/reverse-SynthID/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

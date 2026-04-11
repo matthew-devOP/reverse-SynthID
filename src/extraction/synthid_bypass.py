@@ -23,12 +23,17 @@ import numpy as np
 import cv2
 from scipy.fft import fft2, ifft2, fftshift, ifftshift
 from scipy import ndimage
-
-# Ensure same-directory modules are importable regardless of cwd
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
 from PIL import Image
+
+from src.utils.metrics import compute_psnr, compute_ssim
+from src.utils.image_io import (
+    list_image_files,
+    load_image as _load_image_util,
+    image_shape as _image_shape_util,
+    jpeg_compress as _jpeg_compress_util,
+)
 
 
 @dataclass
@@ -336,24 +341,7 @@ class SynthIDBypass:
         quality: int = 85
     ) -> np.ndarray:
         """Apply JPEG compression/decompression cycle."""
-        img_uint8 = (image * 255).clip(0, 255).astype(np.uint8)
-        
-        # Convert to PIL for JPEG encoding
-        if len(image.shape) == 3:
-            pil_img = Image.fromarray(img_uint8, mode='RGB')
-        else:
-            pil_img = Image.fromarray(img_uint8, mode='L')
-        
-        # Compress to JPEG in memory
-        buffer = io.BytesIO()
-        pil_img.save(buffer, format='JPEG', quality=quality)
-        buffer.seek(0)
-        
-        # Decompress
-        pil_img = Image.open(buffer)
-        result = np.array(pil_img).astype(np.float32) / 255.0
-        
-        return result
+        return _jpeg_compress_util(image, quality=quality)
     
     def jpeg_quality_cycle(
         self,
@@ -603,51 +591,11 @@ class SynthIDBypass:
     
     def compute_psnr(self, original: np.ndarray, modified: np.ndarray) -> float:
         """Compute Peak Signal-to-Noise Ratio."""
-        mse = np.mean((original - modified) ** 2)
-        if mse == 0:
-            return float('inf')
-        return float(10 * np.log10(1.0 / mse))
-    
+        return compute_psnr(original, modified)
+
     def compute_ssim(self, original: np.ndarray, modified: np.ndarray) -> float:
-        """Compute SSIM using vectorized block-based approach (no loop)."""
-        img_o = original.astype(np.float64)
-        img_m = modified.astype(np.float64)
-        if img_o.max() > 1.5:
-            img_o = img_o / 255.0
-            img_m = img_m / 255.0
-        
-        # Convert to grayscale using luminance weights
-        if img_o.ndim == 3:
-            gray_o = 0.299 * img_o[:,:,0] + 0.587 * img_o[:,:,1] + 0.114 * img_o[:,:,2]
-            gray_m = 0.299 * img_m[:,:,0] + 0.587 * img_m[:,:,1] + 0.114 * img_m[:,:,2]
-        else:
-            gray_o = img_o
-            gray_m = img_m
-        
-        blk = 8
-        rows, cols = gray_o.shape
-        rc = (rows // blk) * blk
-        cc = (cols // blk) * blk
-        
-        # Vectorized block reshape
-        a = gray_o[:rc, :cc].reshape(rc // blk, blk, cc // blk, blk)
-        a = a.transpose(0, 2, 1, 3).reshape(-1, blk, blk)
-        b = gray_m[:rc, :cc].reshape(rc // blk, blk, cc // blk, blk)
-        b = b.transpose(0, 2, 1, 3).reshape(-1, blk, blk)
-        
-        mu_a = a.mean(axis=(1, 2))
-        mu_b = b.mean(axis=(1, 2))
-        var_a = a.var(axis=(1, 2))
-        var_b = b.var(axis=(1, 2))
-        cov_ab = ((a - mu_a[:, None, None]) * (b - mu_b[:, None, None])).mean(axis=(1, 2))
-        
-        k1_sq = 0.0001  # (0.01)^2
-        k2_sq = 0.0009  # (0.03)^2
-        
-        num = (2.0 * mu_a * mu_b + k1_sq) * (2.0 * cov_ab + k2_sq)
-        den = (mu_a * mu_a + mu_b * mu_b + k1_sq) * (var_a + var_b + k2_sq)
-        
-        return float(np.mean(num / den))
+        """Compute SSIM using vectorized block-based approach."""
+        return compute_ssim(original, modified)
     
     # ================================================================
     # MAIN BYPASS PIPELINE
@@ -1288,34 +1236,11 @@ class SynthIDBypass:
         # Clamp output to valid [0,1] range
         current = np.clip(current, 0, 1)
 
-        # Quantize to uint8 for consistent quality metrics
         cleaned_uint8 = (current * 255).clip(0, 255).astype(np.uint8)
         original_uint8 = (img_f * 255).clip(0, 255).astype(np.uint8)
-        cleaned_qf = cleaned_uint8.astype(np.float64) / 255.0
-        original_qf = original_uint8.astype(np.float64) / 255.0
-        
-        # PSNR
-        _mse = np.mean((original_qf - cleaned_qf) ** 2)
-        psnr = float('inf') if _mse == 0 else float(10 * np.log10(1.0 / _mse))
-        
-        # Inline SSIM computation (avoids Python 3.14 method dispatch issue)
-        _go = 0.299 * original_qf[:,:,0] + 0.587 * original_qf[:,:,1] + 0.114 * original_qf[:,:,2]
-        _gm = 0.299 * cleaned_qf[:,:,0] + 0.587 * cleaned_qf[:,:,1] + 0.114 * cleaned_qf[:,:,2]
-        _blk = 8
-        _rc = (_go.shape[0] // _blk) * _blk
-        _cc = (_go.shape[1] // _blk) * _blk
-        _a = _go[:_rc, :_cc].reshape(_rc // _blk, _blk, _cc // _blk, _blk).transpose(0, 2, 1, 3).reshape(-1, _blk, _blk)
-        _b = _gm[:_rc, :_cc].reshape(_rc // _blk, _blk, _cc // _blk, _blk).transpose(0, 2, 1, 3).reshape(-1, _blk, _blk)
-        _ma = _a.mean(axis=(1, 2))
-        _mb = _b.mean(axis=(1, 2))
-        _va = _a.var(axis=(1, 2))
-        _vb = _b.var(axis=(1, 2))
-        _cv = ((_a - _ma[:, None, None]) * (_b - _mb[:, None, None])).mean(axis=(1, 2))
-        _c1 = 0.0001
-        _c2 = 0.0009
-        _num = (2.0 * _ma * _mb + _c1) * (2.0 * _cv + _c2)
-        _den = (_ma * _ma + _mb * _mb + _c1) * (_va + _vb + _c2)
-        ssim = float(np.mean(_num / _den))
+
+        psnr = compute_psnr(original_uint8, cleaned_uint8)
+        ssim = compute_ssim(original_uint8, cleaned_uint8)
         
         # Final detection
         detection_after = None
@@ -1457,24 +1382,8 @@ class SynthIDBypass:
 
         cleaned_uint8 = np.clip(work, 0, 255).astype(np.uint8)
 
-        oq = original_uint8.astype(np.float64) / 255.0
-        cq = cleaned_uint8.astype(np.float64) / 255.0
-        mse = float(np.mean((oq - cq) ** 2))
-        psnr = float('inf') if mse == 0 else float(10 * np.log10(1.0 / mse))
-
-        _go = 0.299*oq[:,:,0] + 0.587*oq[:,:,1] + 0.114*oq[:,:,2]
-        _gm = 0.299*cq[:,:,0] + 0.587*cq[:,:,1] + 0.114*cq[:,:,2]
-        _b = 8
-        _rc = (_go.shape[0]//_b)*_b; _cc = (_go.shape[1]//_b)*_b
-        _ao = _go[:_rc,:_cc].reshape(_rc//_b,_b,_cc//_b,_b).transpose(0,2,1,3).reshape(-1,_b,_b)
-        _am = _gm[:_rc,:_cc].reshape(_rc//_b,_b,_cc//_b,_b).transpose(0,2,1,3).reshape(-1,_b,_b)
-        _ma=_ao.mean(axis=(1,2)); _mb=_am.mean(axis=(1,2))
-        _va=_ao.var(axis=(1,2));  _vb=_am.var(axis=(1,2))
-        _cv=((_ao-_ma[:,None,None])*(_am-_mb[:,None,None])).mean(axis=(1,2))
-        ssim = float(np.mean(
-            (2*_ma*_mb+1e-4)*(2*_cv+9e-4) /
-            ((_ma**2+_mb**2+1e-4)*(_va+_vb+9e-4))
-        ))
+        psnr = compute_psnr(original_uint8, cleaned_uint8)
+        ssim = compute_ssim(original_uint8, cleaned_uint8)
 
         detection_before = detection_after = None
         if verify and self.extractor is not None:
@@ -1619,47 +1528,17 @@ class SpectralCodebook:
     @staticmethod
     def _list_reference_images(directory: str, max_images: int = None) -> list:
         """Collect image files, excluding unwatermarked baselines."""
-        import glob
-
-        excl = {
-            'black.jpg', 'black.jpeg', 'black.png',
-            'white.jpg', 'white.jpeg', 'white.png',
-        }
-        paths = []
-        for ext in ('*.png', '*.jpg', '*.jpeg', '*.webp'):
-            paths.extend(glob.glob(os.path.join(directory, ext)))
-            paths.extend(glob.glob(os.path.join(directory, ext.upper())))
-        seen = set()
-        out = []
-        for p in sorted(paths):
-            if os.path.basename(p).lower() in excl:
-                continue
-            if p not in seen:
-                seen.add(p)
-                out.append(p)
-        if max_images:
-            out = out[:max_images]
-        return out
+        return list_image_files(directory, max_files=max_images)
 
     @staticmethod
     def _load_image(fpath, target_shape=None):
         """Load image, optionally resizing to target_shape=(H, W)."""
-        img = cv2.imread(fpath)
-        if img is None:
-            return None
-        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float64)
-        if target_shape and (rgb.shape[0], rgb.shape[1]) != target_shape:
-            rgb = cv2.resize(rgb, (target_shape[1], target_shape[0]),
-                             interpolation=cv2.INTER_LANCZOS4).astype(np.float64)
-        return rgb
+        return _load_image_util(fpath, target_shape=target_shape, as_float=True)
 
     @staticmethod
     def _image_shape(fpath):
         """Read image dimensions without loading full array."""
-        img = cv2.imread(fpath, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            return None
-        return (img.shape[0], img.shape[1])
+        return _image_shape_util(fpath)
 
     @staticmethod
     def _accumulate_fft(img_rgb: np.ndarray):

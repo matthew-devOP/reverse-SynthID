@@ -24,6 +24,8 @@ from typing import Optional, Dict, List, Tuple, Union
 from dataclasses import dataclass
 from sklearn.decomposition import PCA, FastICA
 
+from src.utils.denoise import wavelet_denoise as _shared_wavelet_denoise
+
 
 @dataclass
 class DetectionResult:
@@ -130,23 +132,7 @@ class RobustSynthIDExtractor:
         level: int = 3
     ) -> np.ndarray:
         """Wavelet-based denoising using soft thresholding."""
-        coeffs = pywt.wavedec2(channel, wavelet, level=level)
-        
-        # Estimate noise from finest detail coefficients
-        detail = coeffs[-1][0]
-        sigma = np.median(np.abs(detail)) / 0.6745
-        threshold = sigma * np.sqrt(2 * np.log(channel.size))
-        
-        # Apply soft thresholding to detail coefficients
-        new_coeffs = [coeffs[0]]
-        for details in coeffs[1:]:
-            new_details = tuple(
-                pywt.threshold(d, threshold, mode='soft') for d in details
-            )
-            new_coeffs.append(new_details)
-        
-        denoised = pywt.waverec2(new_coeffs, wavelet)
-        return denoised[:channel.shape[0], :channel.shape[1]]
+        return _shared_wavelet_denoise(channel, wavelet=wavelet, level=level)
     
     def bilateral_denoise(
         self,

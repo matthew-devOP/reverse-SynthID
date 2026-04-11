@@ -23,8 +23,8 @@ from scipy.ndimage import zoom
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Tuple
 
-# Ensure same-directory modules are importable regardless of cwd
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.utils.metrics import compute_psnr, compute_ssim
+from src.utils.image_io import jpeg_compress as _jpeg_compress_util
 
 
 @dataclass
@@ -192,40 +192,15 @@ class WatermarkRemover:
     @staticmethod
     def _jpeg_compress(image: np.ndarray, quality: int = 50) -> np.ndarray:
         """Apply JPEG compression/decompression."""
-        img_uint8 = np.clip(image, 0, 255).astype(np.uint8)
-        pil_img = Image.fromarray(img_uint8, mode='RGB')
-        buf = io.BytesIO()
-        pil_img.save(buf, format='JPEG', quality=quality)
-        buf.seek(0)
-        return np.array(Image.open(buf)).astype(np.float32)
-    
+        return _jpeg_compress_util(image, quality=quality)
+
     @staticmethod
     def compute_psnr(original: np.ndarray, modified: np.ndarray) -> float:
-        """Compute Peak Signal-to-Noise Ratio."""
-        mse = np.mean((original.astype(float) - modified.astype(float)) ** 2)
-        if mse == 0:
-            return float('inf')
-        return float(10 * np.log10(255.0 ** 2 / mse))
-    
+        return compute_psnr(original, modified)
+
     @staticmethod
     def compute_ssim(original: np.ndarray, modified: np.ndarray) -> float:
-        """Compute simplified SSIM."""
-        from scipy import ndimage
-        C1, C2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
-        
-        orig_f = original.astype(np.float64)
-        mod_f = modified.astype(np.float64)
-        
-        mu1 = ndimage.uniform_filter(orig_f, size=11)
-        mu2 = ndimage.uniform_filter(mod_f, size=11)
-        
-        sigma1_sq = ndimage.uniform_filter(orig_f ** 2, size=11) - mu1 ** 2
-        sigma2_sq = ndimage.uniform_filter(mod_f ** 2, size=11) - mu2 ** 2
-        sigma12 = ndimage.uniform_filter(orig_f * mod_f, size=11) - mu1 * mu2
-        
-        ssim_map = ((2 * mu1 * mu2 + C1) * (2 * sigma12 + C2)) / \
-                   ((mu1 ** 2 + mu2 ** 2 + C1) * (sigma1_sq + sigma2_sq + C2))
-        return float(np.mean(ssim_map))
+        return compute_ssim(original, modified)
     
     def remove(
         self,

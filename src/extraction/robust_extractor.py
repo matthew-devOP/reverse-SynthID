@@ -25,6 +25,9 @@ from dataclasses import dataclass
 from sklearn.decomposition import PCA, FastICA
 
 from src.utils.denoise import wavelet_denoise as _shared_wavelet_denoise
+from src.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -421,7 +424,10 @@ class RobustSynthIDExtractor:
         
         # FALLBACK: If no reliable carriers found, use known carriers
         if len(reliable_carriers) < 5:
-            print(f"  Warning: Only {len(reliable_carriers)} carriers found, using known carriers as fallback")
+            log.warning(
+                "  Warning: Only %d carriers found, using known carriers as fallback",
+                len(reliable_carriers),
+            )
             # Add known carriers with default values
             for freq in self.known_carriers:
                 if freq not in [c['frequency'] for c in reliable_carriers]:
@@ -516,7 +522,7 @@ class RobustSynthIDExtractor:
         
         Uses multi-scale analysis and ensemble methods for robustness.
         """
-        print(f"Loading images from {image_dir}...")
+        log.info("Loading images from %s...", image_dir)
         
         # Load images
         extensions = {'.png', '.jpg', '.jpeg', '.webp'}
@@ -532,14 +538,14 @@ class RobustSynthIDExtractor:
                     if len(images) >= max_images:
                         break
         
-        print(f"Loaded {len(images)} images")
+        log.info("Loaded %d images", len(images))
         
         # Multi-scale carrier detection
-        print("Detecting carriers (multi-scale)...")
+        log.info("Detecting carriers (multi-scale)...")
         carriers = self.detect_carriers_multi_scale(images)
         
         # Extract reference noise pattern
-        print("Extracting reference noise pattern...")
+        log.info("Extracting reference noise pattern...")
         target_size = 512
         noise_sum = np.zeros((target_size, target_size, 3), dtype=np.float64)
         
@@ -551,11 +557,11 @@ class RobustSynthIDExtractor:
         reference_noise = noise_sum / len(images)
         
         # ICA-based watermark extraction
-        print("Extracting watermark pattern via ICA...")
+        log.info("Extracting watermark pattern via ICA...")
         watermark_pattern = self.extract_watermark_ica(images)
         
         # Compute correlation statistics
-        print("Computing correlation statistics...")
+        log.info("Computing correlation statistics...")
         correlations = []
         sample_images = images[:min(50, len(images))]
         
@@ -576,7 +582,7 @@ class RobustSynthIDExtractor:
         detection_threshold = correlation_mean - 2.5 * correlation_std
         
         # Compute FFT statistics
-        print("Computing FFT reference...")
+        log.info("Computing FFT reference...")
         ref_gray = np.mean(reference_noise, axis=2)
         ref_fft = fftshift(fft2(ref_gray))
         ref_magnitude = np.abs(ref_fft)
@@ -610,7 +616,7 @@ class RobustSynthIDExtractor:
         
         if save_path:
             self.save_codebook(save_path)
-            print(f"Codebook saved to {save_path}")
+            log.info("Codebook saved to %s", save_path)
         
         return self.codebook
     
@@ -776,17 +782,17 @@ if __name__ == '__main__':
         extractor.load_codebook(args.codebook)
         result = extractor.detect(args.image)
         
-        print("\n" + "=" * 50)
-        print("ROBUST SYNTHID DETECTION RESULTS")
-        print("=" * 50)
-        print(f"  Watermarked: {result.is_watermarked}")
-        print(f"  Confidence:  {result.confidence:.4f}")
-        print(f"  Correlation: {result.correlation:.4f}")
-        print(f"  Phase Match: {result.phase_match:.4f}")
-        print(f"  Structure:   {result.structure_ratio:.4f}")
-        print(f"  Carrier Str: {result.carrier_strength:.2f}")
-        print(f"  Multi-Scale: {result.multi_scale_consistency:.4f}")
-        print("=" * 50)
+        log.info("\n%s", "=" * 50)
+        log.info("ROBUST SYNTHID DETECTION RESULTS")
+        log.info("%s", "=" * 50)
+        log.info("  Watermarked: %s", result.is_watermarked)
+        log.info("  Confidence:  %.4f", result.confidence)
+        log.info("  Correlation: %.4f", result.correlation)
+        log.info("  Phase Match: %.4f", result.phase_match)
+        log.info("  Structure:   %.4f", result.structure_ratio)
+        log.info("  Carrier Str: %.2f", result.carrier_strength)
+        log.info("  Multi-Scale: %.4f", result.multi_scale_consistency)
+        log.info("%s", "=" * 50)
     
     else:
         parser.print_help()

@@ -34,6 +34,9 @@ from src.utils.image_io import (
     image_shape as _image_shape_util,
     jpeg_compress as _jpeg_compress_util,
 )
+from src.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -1571,7 +1574,7 @@ class SpectralCodebook:
             raise ValueError(f"No images in {black_dir} (baselines excluded)")
 
         build_shape = self._image_shape(black_files[0])
-        print(f"[black] {len(black_files)} images  resolution={build_shape}")
+        log.info("[black] %d images  resolution=%s", len(black_files), build_shape)
 
         mag_sum = phase_unit_sum = None
         n = 0
@@ -1587,7 +1590,7 @@ class SpectralCodebook:
                 phase_unit_sum += u
             n += 1
             if (i + 1) % 10 == 0:
-                print(f"  {i + 1}/{len(black_files)}")
+                log.info("  %d/%d", i + 1, len(black_files))
             del m, u, img
 
         avg_mag = mag_sum / n
@@ -1607,14 +1610,14 @@ class SpectralCodebook:
             'n_white_refs': 0,
             'n_random_refs': 0,
         }
-        print(f"  mean consistency (G)="
-              f"{np.mean(profile['phase_consistency'][:,:,1]):.4f}")
+        log.info("  mean consistency (G)=%.4f",
+                 np.mean(profile['phase_consistency'][:, :, 1]))
 
         # ---- White refs ----
         if white_dir:
             white_files = self._list_reference_images(white_dir, max_images)
             if white_files:
-                print(f"[white] {len(white_files)} images")
+                log.info("[white] %d images", len(white_files))
                 wm_sum = wu_sum = None
                 nw = 0
                 for fp in white_files:
@@ -1638,14 +1641,14 @@ class SpectralCodebook:
                     profile['phase_template'] - profile['white_phase_template']
                 ))
                 agree_g = profile['black_white_agreement'][:, :, 1]
-                print(f"  cross-validated bins (|cos|>0.90, G): "
-                      f"{int(np.sum(agree_g > 0.90))}")
+                log.info("  cross-validated bins (|cos|>0.90, G): %d",
+                         int(np.sum(agree_g > 0.90)))
 
         # ---- Random / content baseline ----
         if random_dir:
             rand_files = self._list_reference_images(random_dir, max_images)
             if rand_files:
-                print(f"[random] {len(rand_files)} images (content baseline)")
+                log.info("[random] %d images (content baseline)", len(rand_files))
                 rm_sum = None
                 nr = 0
                 for fp in rand_files:
@@ -1667,8 +1670,8 @@ class SpectralCodebook:
         nb = profile['n_black_refs']
         nw = profile['n_white_refs']
         nr = profile['n_random_refs']
-        print(f"\nProfile added: {build_shape[0]}x{build_shape[1]}  "
-              f"({nb}b+{nw}w+{nr}r refs)")
+        log.info("Profile added: %dx%d  (%db+%dw+%dr refs)",
+                 build_shape[0], build_shape[1], nb, nw, nr)
 
     def build_from_watermarked(
         self,
@@ -1689,7 +1692,7 @@ class SpectralCodebook:
             raise ValueError(f"No images in {image_dir}")
 
         build_shape = self._image_shape(files[0])
-        print(f"[watermarked] {len(files)} images  resolution={build_shape}")
+        log.info("[watermarked] %d images  resolution=%s", len(files), build_shape)
 
         mag_sum = phase_unit_sum = None
         n = 0
@@ -1705,7 +1708,7 @@ class SpectralCodebook:
                 phase_unit_sum += u
             n += 1
             if (i + 1) % 10 == 0:
-                print(f"  {i + 1}/{len(files)}")
+                log.info("  %d/%d", i + 1, len(files))
             del m, u, img
 
         avg_mag = mag_sum / n
@@ -1729,8 +1732,8 @@ class SpectralCodebook:
 
         self.profiles[build_shape] = profile
         self._print_top_carriers(profile, build_shape)
-        print(f"\nProfile added: {build_shape[0]}x{build_shape[1]}  "
-              f"({n} watermarked refs)")
+        log.info("Profile added: %dx%d  (%d watermarked refs)",
+                 build_shape[0], build_shape[1], n)
 
     @staticmethod
     def _print_top_carriers(profile, ref_shape):
@@ -1738,7 +1741,7 @@ class SpectralCodebook:
         cg = profile['phase_consistency'][:, :, 1].copy()
         cg[0, 0] = 0
         top = np.unravel_index(np.argsort(cg.ravel())[-10:], cg.shape)
-        print("  Top-10 phase-consistent carriers (G):")
+        log.info("  Top-10 phase-consistent carriers (G):")
         bwa = profile.get('black_white_agreement')
         for fy, fx in zip(top[0][::-1], top[1][::-1]):
             fy_s = fy if fy <= h // 2 else fy - h
@@ -1746,8 +1749,8 @@ class SpectralCodebook:
             mg = profile['magnitude_profile'][fy, fx, 1]
             cs = cg[fy, fx]
             xv = (f"  agree={bwa[fy, fx, 1]:.3f}" if bwa is not None else "")
-            print(f"    ({fy_s:+4d},{fx_s:+4d})  mag={mg:9.0f}  "
-                  f"cons={cs:.4f}{xv}")
+            log.info("    (%+4d,%+4d)  mag=%9.0f  cons=%.4f%s",
+                     fy_s, fx_s, mg, cs, xv)
 
     # ------------------------------------------------------------------
     # Watermark estimation (Wiener-style)
@@ -1956,7 +1959,7 @@ class SpectralCodebook:
         np.savez(path, **data)
         sz = os.path.getsize(path) / 1e6
         res_str = ', '.join(f'{h}x{w}' for h, w in self.profiles)
-        print(f"Codebook saved → {path}  [{res_str}]  {sz:.1f} MB")
+        log.info("Codebook saved → %s  [%s]  %.1f MB", path, res_str, sz)
 
     def load(self, path: str):
         """Load codebook (auto-detects format version)."""
@@ -1971,10 +1974,10 @@ class SpectralCodebook:
             self._load_legacy(d)
 
         res_str = ', '.join(f'{h}x{w}' for h, w in self.profiles)
-        print(f"Codebook loaded: [{res_str}]")
+        log.info("Codebook loaded: [%s]", res_str)
         for (h, w), prof in self.profiles.items():
             nb, nw, nr = prof['n_black_refs'], prof['n_white_refs'], prof['n_random_refs']
-            print(f"  {h}x{w}: {nb}b+{nw}w+{nr}r")
+            log.info("  %dx%d: %db+%dw+%dr", h, w, nb, nw, nr)
 
     def _load_compact(self, d):
         """Load format_version >= 2 (rfft + mixed precision + optional sparse)."""
@@ -2065,26 +2068,26 @@ class SpectralCodebook:
 # ================================================================
 
 def _print_bypass_result(result, mode_str):
-    print("\n" + "=" * 60)
-    print("SYNTHID BYPASS RESULTS")
-    print("=" * 60)
-    print(f"  Pipeline: {mode_str}")
-    print(f"  Success: {result.success}")
-    print(f"  PSNR: {result.psnr:.2f} dB")
-    print(f"  SSIM: {result.ssim:.4f}")
-    print(f"  Stages: {', '.join(result.stages_applied)}")
+    log.info("\n" + "=" * 60)
+    log.info("SYNTHID BYPASS RESULTS")
+    log.info("=" * 60)
+    log.info("  Pipeline: %s", mode_str)
+    log.info("  Success: %s", result.success)
+    log.info("  PSNR: %.2f dB", result.psnr)
+    log.info("  SSIM: %.4f", result.ssim)
+    log.info("  Stages: %s", ", ".join(result.stages_applied))
     if result.details:
         for k, v in result.details.items():
-            print(f"  {k}: {v}")
+            log.info("  %s: %s", k, v)
     if result.detection_before:
-        print("\n  Before Bypass:")
+        log.info("\n  Before Bypass:")
         for k, v in result.detection_before.items():
-            print(f"    {k}: {v}")
+            log.info("    %s: %s", k, v)
     if result.detection_after:
-        print("\n  After Bypass:")
+        log.info("\n  After Bypass:")
         for k, v in result.detection_after.items():
-            print(f"    {k}: {v}")
-    print("=" * 60)
+            log.info("    %s: %s", k, v)
+    log.info("=" * 60)
 
 
 if __name__ == '__main__':
@@ -2147,7 +2150,7 @@ if __name__ == '__main__':
                 extractor = RobustSynthIDExtractor()
                 extractor.load_codebook(det_path)
             except Exception as e:
-                print(f"Warning: Could not load extractor: {e}")
+                log.warning("Could not load extractor: %s", e)
 
         bypass = SynthIDBypass(extractor=extractor)
         ver = getattr(args, 'version', None)
@@ -2177,7 +2180,7 @@ if __name__ == '__main__':
                 args.input, args.output,
                 mode=mode, verify=not args.no_verify)
             _print_bypass_result(result, f"v1/{mode}")
-        print(f"Saved to: {args.output}")
+        log.info("Saved to: %s", args.output)
 
     else:
         parser.print_help()

@@ -25,6 +25,9 @@ from typing import Optional, Dict, Tuple
 
 from src.utils.metrics import compute_psnr, compute_ssim
 from src.utils.image_io import jpeg_compress as _jpeg_compress_util
+from src.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -101,7 +104,7 @@ class WatermarkRemover:
         
         if black_dir:
             black_files = sorted(glob.glob(os.path.join(black_dir, '*.png')))
-            print(f"Found {len(black_files)} black images")
+            log.info("Found %d black images", len(black_files))
             
             # Load all and cluster by correlation to find main group
             all_wms = []
@@ -138,16 +141,20 @@ class WatermarkRemover:
                 
                 # Use the largest group
                 main_group = max(groups, key=len)
-                print(f"Main group: {len(main_group)} images (excluded {n - len(main_group)} outliers)")
+                log.info(
+                    "Main group: %d images (excluded %d outliers)",
+                    len(main_group),
+                    n - len(main_group),
+                )
             else:
                 main_group = list(range(n))
             
             self.signature = np.mean([all_wms[i] for i in main_group], axis=0)
-            print(f"Signature shape: {self.signature.shape}")
+            log.info("Signature shape: %s", self.signature.shape)
         
         if white_dir:
             white_files = sorted(glob.glob(os.path.join(white_dir, '*.png')))
-            print(f"Found {len(white_files)} white images")
+            log.info("Found %d white images", len(white_files))
             
             white_wms = []
             for f in white_files:
@@ -174,7 +181,7 @@ class WatermarkRemover:
             with open(os.path.join(output_dir, 'signature_meta.json'), 'w') as f:
                 json.dump(meta, f, indent=2)
             
-            print(f"Saved to {output_dir}")
+            log.info("Saved to %s", output_dir)
     
     def _resize_signature(self, target_h: int, target_w: int) -> np.ndarray:
         """Resize signature to match target image dimensions."""
@@ -418,10 +425,10 @@ class WatermarkRemover:
         if limit:
             files = files[:limit]
         
-        print(f"Processing {len(files)} images in {mode} mode")
+        log.info("Processing %d images in %s mode", len(files), mode)
         if mode == 'combined_worst':
-            print(f"Strength: {strength}")
-        print("=" * 70)
+            log.info("Strength: %s", strength)
+        log.info("%s", "=" * 70)
         
         results = []
         for i, f in enumerate(files):
@@ -438,12 +445,35 @@ class WatermarkRemover:
                     drop = (before - after) / before * 100
                     det_before = '✓' if result.detection_before['is_watermarked'] else '✗'
                     det_after = '✓' if result.detection_after['is_watermarked'] else '✗'
-                    print(f"  [{i+1}/{len(files)}] {basename:20s} | {det_before}→{det_after} | "
-                          f"phase: {before:.3f}→{after:.3f} ({drop:+5.1f}%) | PSNR: {result.psnr:.1f}dB")
+                    log.info(
+                        "  [%d/%d] %-20s | %s→%s | "
+                        "phase: %.3f→%.3f (%+5.1f%%) | PSNR: %.1fdB",
+                        i + 1,
+                        len(files),
+                        basename,
+                        det_before,
+                        det_after,
+                        before,
+                        after,
+                        drop,
+                        result.psnr,
+                    )
                 else:
-                    print(f"  [{i+1}/{len(files)}] {basename:20s} | PSNR: {result.psnr:.1f}dB")
+                    log.info(
+                        "  [%d/%d] %-20s | PSNR: %.1fdB",
+                        i + 1,
+                        len(files),
+                        basename,
+                        result.psnr,
+                    )
             except Exception as e:
-                print(f"  [{i+1}/{len(files)}] {basename:20s} | ERROR: {e}")
+                log.info(
+                    "  [%d/%d] %-20s | ERROR: %s",
+                    i + 1,
+                    len(files),
+                    basename,
+                    e,
+                )
         
         # Summary
         if results and verify:
@@ -457,13 +487,16 @@ class WatermarkRemover:
                     if not r.detection_after['is_watermarked']:
                         successes += 1
             
-            print("=" * 70)
-            print(f"Results: {len(results)} images processed")
+            log.info("%s", "=" * 70)
+            log.info("Results: %d images processed", len(results))
             if drops:
-                print(f"  Average phase drop: {np.mean(drops):.1f}%")
-                print(f"  Best phase drop: {max(drops):.1f}%")
-                print(f"  Undetected: {successes}/{len(results)}")
-            print(f"  Average PSNR: {np.mean([r.psnr for r in results]):.1f}dB")
+                log.info("  Average phase drop: %.1f%%", np.mean(drops))
+                log.info("  Best phase drop: %.1f%%", max(drops))
+                log.info("  Undetected: %d/%d", successes, len(results))
+            log.info(
+                "  Average PSNR: %.1fdB",
+                np.mean([r.psnr for r in results]),
+            )
         
         return results
 
@@ -555,7 +588,7 @@ Examples:
                 extractor = RobustSynthIDExtractor()
                 extractor.load_codebook(codebook)
             except Exception as e:
-                print(f"Warning: Could not load extractor: {e}")
+                log.warning("Warning: Could not load extractor: %s", e)
         
         sig_dir = args.signature
         remover = WatermarkRemover(signature_dir=sig_dir, extractor=extractor)
@@ -568,34 +601,46 @@ Examples:
                 strength=strength
             )
             
-            print("\n" + "=" * 60)
-            print("WATERMARK REMOVAL RESULTS")
-            print("=" * 60)
-            print(f"  Mode: {args.mode}")
+            log.info("\n%s", "=" * 60)
+            log.info("WATERMARK REMOVAL RESULTS")
+            log.info("%s", "=" * 60)
+            log.info("  Mode: %s", args.mode)
             if args.mode == 'combined_worst':
-                print(f"  Strength: {strength}")
-            print(f"  Method: {result.method}")
-            print(f"  Success: {result.success}")
-            print(f"  PSNR: {result.psnr:.2f} dB")
-            print(f"  SSIM: {result.ssim:.4f}")
+                log.info("  Strength: %s", strength)
+            log.info("  Method: %s", result.method)
+            log.info("  Success: %s", result.success)
+            log.info("  PSNR: %.2f dB", result.psnr)
+            log.info("  SSIM: %.4f", result.ssim)
             
             if result.detection_before:
-                print(f"\n  Before:")
-                print(f"    Watermarked: {result.detection_before['is_watermarked']}")
-                print(f"    Phase Match: {result.detection_before['phase_match']:.4f}")
+                log.info("\n  Before:")
+                log.info(
+                    "    Watermarked: %s",
+                    result.detection_before['is_watermarked'],
+                )
+                log.info(
+                    "    Phase Match: %.4f",
+                    result.detection_before['phase_match'],
+                )
             
             if result.detection_after:
-                print(f"\n  After:")
-                print(f"    Watermarked: {result.detection_after['is_watermarked']}")
-                print(f"    Phase Match: {result.detection_after['phase_match']:.4f}")
+                log.info("\n  After:")
+                log.info(
+                    "    Watermarked: %s",
+                    result.detection_after['is_watermarked'],
+                )
+                log.info(
+                    "    Phase Match: %.4f",
+                    result.detection_after['phase_match'],
+                )
                 
                 if result.detection_before:
                     drop = result.detection_before['phase_match'] - result.detection_after['phase_match']
                     pct = 100 * drop / result.detection_before['phase_match']
-                    print(f"\n  Phase Drop: {drop:.4f} ({pct:.1f}%)")
+                    log.info("\n  Phase Drop: %.4f (%.1f%%)", drop, pct)
             
-            print("=" * 60)
-            print(f"Saved to: {args.output}")
+            log.info("%s", "=" * 60)
+            log.info("Saved to: %s", args.output)
         
         elif args.command == 'batch':
             remover.batch_remove(
